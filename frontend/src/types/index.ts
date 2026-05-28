@@ -78,7 +78,7 @@ export interface Job {
   freelancer?: User;
   milestones: Milestone[];
   contractJobId?: string;
-  escrowStatus: "UNFUNDED" | "FUNDED" | "COMPLETED" | "CANCELLED" | "DISPUTED";
+  escrowStatus: "UNFUNDED" | "FUNDED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "DISPUTED";
   revisionProposal?: RevisionProposal | null;
   imageUrl?: string;
   createdAt: string;
@@ -192,6 +192,15 @@ export interface Vote {
   voter: User;
 }
 
+export interface DisputeEvidence {
+  id: string;
+  ipfsHash: string;
+  fileName: string;
+  fileType: string;
+  uploadedAt: string;
+  uploaderAddress: string;
+}
+
 export interface Dispute {
   id: string;
   jobId: string;
@@ -209,6 +218,8 @@ export interface Dispute {
   initiator: User;
   respondent: User;
   votes: Vote[];
+  evidence?: DisputeEvidence[];
+  arbitrators?: string[];
 }
 
 export interface Transaction {
