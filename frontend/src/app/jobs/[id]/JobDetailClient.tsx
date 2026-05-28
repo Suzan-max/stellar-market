@@ -20,6 +20,7 @@ import Link from "next/link";
 import axios from "axios";
 import { useWallet } from "@/context/WalletContext";
 import { useAuth } from "@/context/AuthContext";
+import { PAYMENT_TOKENS, TOKEN_EXCHANGE_RATES } from "@/constants/jobs";
 import StatusBadge from "@/components/StatusBadge";
 import ApplyModal from "@/components/ApplyModal";
 import RaiseDisputeModal from "@/components/RaiseDisputeModal";
@@ -69,7 +70,7 @@ type PendingOnChainAction = {
 
 export default function JobDetailClient() {
   const { id } = useParams();
-  const { address, signAndBroadcastTransaction } = useWallet();
+  const { address, balances, signAndBroadcastTransaction } = useWallet();
   const { user } = useAuth();
   const [job, setJob] = useState<Job | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -99,6 +100,7 @@ export default function JobDetailClient() {
   >(null);
   const [extendDeadlineDate, setExtendDeadlineDate] = useState<Record<string, string>>({});
   const [pendingOnChainAction, setPendingOnChainAction] = useState<PendingOnChainAction | null>(null);
+  const [selectedPaymentToken, setSelectedPaymentToken] = useState<(typeof PAYMENT_TOKENS)[number]>("XLM");
 
   const isClient = Boolean(job && address === job.client.walletAddress);
 
@@ -343,6 +345,7 @@ export default function JobDetailClient() {
         actionLabel = "Confirm initialize";
       } else if (action === "fund") {
         endpoint = "/escrow/init-fund";
+        payload = { jobId: id, paymentToken: selectedPaymentToken };
         type = "FUND_JOB";
         title = "Fund escrow";
         description = "Lock the job budget into the escrow contract.";
@@ -527,6 +530,20 @@ export default function JobDetailClient() {
       }));
     }, [job]);
 
+  const selectedTokenBalance = useMemo(() => {
+    const match = balances.find((entry) => entry.asset === selectedPaymentToken);
+    return Number.parseFloat(match?.balance ?? "0");
+  }, [balances, selectedPaymentToken]);
+
+  const fundingRequirement = useMemo(
+    () => job?.budget ?? 0,
+    [job],
+  );
+
+  const selectedTokenAmount = fundingRequirement / TOKEN_EXCHANGE_RATES[selectedPaymentToken];
+  const hasSufficientSelectedTokenBalance =
+    selectedTokenBalance >= selectedTokenAmount;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -637,6 +654,29 @@ export default function JobDetailClient() {
             </h2>
             <div className="text-theme-text whitespace-pre-line text-sm leading-relaxed">
               {job.description}
+            </div>
+          </div>
+
+          <div className="card mb-8">
+            <h2 className="text-lg font-semibold text-theme-heading mb-4">
+              Skills and category
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={`/jobs?category=${encodeURIComponent(job.category)}`}
+                className="inline-flex items-center gap-1 rounded-full border border-stellar-purple/20 bg-stellar-purple/10 px-3 py-1 text-xs font-medium text-stellar-purple transition-colors hover:bg-stellar-purple/20"
+              >
+                {job.category}
+              </Link>
+              {job.skills.map((skill) => (
+                <Link
+                  key={skill}
+                  href={`/jobs?skills=${encodeURIComponent(skill)}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-theme-border bg-theme-bg px-3 py-1 text-xs font-medium text-theme-text transition-colors hover:border-stellar-blue hover:text-stellar-blue"
+                >
+                  {skill}
+                </Link>
+              ))}
             </div>
           </div>
 
@@ -1063,6 +1103,60 @@ export default function JobDetailClient() {
               </div>
 
               <div className="mt-4 space-y-2">
+                <div className="rounded-xl border border-theme-border bg-theme-bg/60 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.24em] text-theme-text-muted">
+                        Payment token
+                      </p>
+                      <h4 className="mt-1 text-sm font-semibold text-theme-heading">
+                        Choose your escrow asset
+                      </h4>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-theme-text">
+                      <span className="rounded-full border border-theme-border px-2 py-1">
+                        1 XLM ≈ 1 USDC
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {PAYMENT_TOKENS.map((token) => (
+                      <button
+                        key={token}
+                        type="button"
+                        onClick={() => setSelectedPaymentToken(token)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          selectedPaymentToken === token
+                            ? "border-stellar-blue bg-stellar-blue/10 text-stellar-blue"
+                            : "border-theme-border bg-theme-card text-theme-text hover:border-stellar-blue hover:text-stellar-blue"
+                        }`}
+                      >
+                        {token}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-theme-text">
+                    <span>
+                      Wallet balance: {selectedTokenBalance.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })} {selectedPaymentToken}
+                    </span>
+                    <span className="rounded-full border border-theme-border px-2 py-1">
+                      Required: {selectedTokenAmount.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })} {selectedPaymentToken}
+                    </span>
+                  </div>
+
+                  {!hasSufficientSelectedTokenBalance && (
+                    <p className="mt-2 text-xs text-theme-error">
+                      Insufficient {selectedPaymentToken} balance for this escrow deposit.
+                    </p>
+                  )}
+                </div>
+
                 {isClient &&
                   !job.contractJobId &&
                   job.status === "IN_PROGRESS" && (
@@ -1084,7 +1178,7 @@ export default function JobDetailClient() {
                   job.contractJobId &&
                   job.escrowStatus === "UNFUNDED" && (
                     <button
-                      disabled={processing}
+                      disabled={processing || !hasSufficientSelectedTokenBalance}
                       onClick={() => handleEscrowAction("fund")}
                       className="btn-secondary w-full flex items-center justify-center gap-2 border-stellar-blue text-stellar-blue hover:bg-stellar-blue/10"
                     >
@@ -1093,7 +1187,7 @@ export default function JobDetailClient() {
                       ) : (
                         <DollarSign size={18} />
                       )}
-                      Fund Escrow with XLM
+                      Fund Escrow with {selectedPaymentToken}
                     </button>
                   )}
 

@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Unplug,
   Wallet,
+  Bookmark,
   ChevronDown,
   Loader2,
   Gift,
@@ -328,6 +329,7 @@ export default function Navbar() {
 
   const navLinks = [
     { href: "/jobs", label: isFreelancer ? "Find Work" : "Jobs", icon: Briefcase, hide: isClient },
+    { href: "/saved-jobs", label: "Saved Jobs", icon: Bookmark, hide: !isFreelancer && !isClient },
     { href: "/services", label: "Services", icon: Search },
     { href: "/freelancers", label: "Talent", icon: Users },
     { href: "/disputes", label: "Disputes", icon: ShieldCheck },
