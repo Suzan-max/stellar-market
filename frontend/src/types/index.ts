@@ -85,6 +85,9 @@ export interface Job {
   createdAt: string;
   updatedAt?: string;
   _count?: { applications: number };
+  isSaved?: boolean;
+  savedAt?: string;
+  paymentToken?: "XLM" | "USDC";
 }
 
 export interface RecommendedJob extends Job {

@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 export interface JobFilters {
   search: string;
+  category: string;
   skills: string[];
   status: string[];
   minBudget: string;
@@ -16,6 +17,7 @@ export interface JobFilters {
 
 const DEFAULTS: JobFilters = {
   search: "",
+  category: "All",
   skills: [],
   status: [],
   minBudget: "",
@@ -32,6 +34,7 @@ function parseFiltersFromParams(searchParams: URLSearchParams): JobFilters {
 
   return {
     search: searchParams.get("q") || "",
+    category: searchParams.get("category") || "All",
     skills: skills ? skills.split(",") : [],
     status: status ? status.split(",") : [],
     minBudget: searchParams.get("min") || "",
@@ -45,6 +48,7 @@ function parseFiltersFromParams(searchParams: URLSearchParams): JobFilters {
 function filtersToParams(filters: JobFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.search) params.set("q", filters.search);
+  if (filters.category !== "All") params.set("category", filters.category);
   if (filters.skills.length) params.set("skills", filters.skills.join(","));
   if (filters.status.length) params.set("status", filters.status.join(","));
   if (filters.minBudget) params.set("min", filters.minBudget);
@@ -133,6 +137,7 @@ export function useJobFilters() {
 
   const activeCount = useMemo(() => {
     let count = 0;
+    if (filters.category !== "All") count++;
     if (filters.skills.length) count++;
     if (filters.status.length) count++;
     if (filters.minBudget || filters.maxBudget) count++;
