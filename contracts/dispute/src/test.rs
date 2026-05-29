@@ -1527,3 +1527,117 @@ fn test_delegated_vote_counts_same_as_direct_vote_in_resolution() {
     let status = client.resolve_dispute(&dispute_id);
     assert_eq!(status, DisputeStatus::ResolvedForFreelancer);
 }
+
+// ── SplitAward (partial dispute) tests (#532) ─────────────────────────────────
+
+fn setup_split_award_dispute(env: &Env) -> (DisputeContractClient, Address, Address, u64) {
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(env);
+    let job_client = Address::generate(env);
+    let freelancer = Address::generate(env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+    let dispute_id = client.raise_dispute(
+        &1u64, &job_client, &freelancer, &job_client,
+        &String::from_str(env, "Partial work completed"), &3u32, &None,
+    );
+    (client, job_client, freelancer, dispute_id)
+}
+
+#[test]
+fn test_split_award_equal_50_50() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, dispute_id) = setup_split_award_dispute(&env);
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    // Three votes for equal split (5000/5000).
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::SplitAward(5000, 5000), &String::from_str(&env, "Half done"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::SplitAward(5000, 5000), &String::from_str(&env, "Equal"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::SplitAward(5000, 5000), &String::from_str(&env, "Fair"));
+
+    let status = client.resolve_dispute(&dispute_id);
+    assert_eq!(status, DisputeStatus::SplitAward(5000));
+}
+
+#[test]
+fn test_split_award_75_25() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, dispute_id) = setup_split_award_dispute(&env);
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    // Three votes for 75/25 split — median of [7500, 7500, 7500] = 7500.
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::SplitAward(7500, 2500), &String::from_str(&env, "Mostly done"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::SplitAward(7500, 2500), &String::from_str(&env, "75%"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::SplitAward(7500, 2500), &String::from_str(&env, "Agree"));
+
+    let status = client.resolve_dispute(&dispute_id);
+    assert_eq!(status, DisputeStatus::SplitAward(7500));
+}
+
+#[test]
+fn test_split_award_mixed_votes_picks_median() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, dispute_id) = setup_split_award_dispute(&env);
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    // Votes: 3000, 5000, 7000 — sorted median = 5000.
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::SplitAward(3000, 7000), &String::from_str(&env, "30%"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::SplitAward(7000, 3000), &String::from_str(&env, "70%"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::SplitAward(5000, 5000), &String::from_str(&env, "50%"));
+
+    let status = client.resolve_dispute(&dispute_id);
+    assert_eq!(status, DisputeStatus::SplitAward(5000));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #18)")] // InvalidSplitBps
+fn test_split_award_invalid_bps_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, dispute_id) = setup_split_award_dispute(&env);
+
+    let voter = Address::generate(&env);
+    // client_bps + freelancer_bps = 6000 + 5000 = 11000 ≠ 10000 → must fail.
+    client.cast_vote(
+        &dispute_id, &voter,
+        &VoteChoice::SplitAward(6000, 5000),
+        &String::from_str(&env, "Bad bps"),
+    );
+}
+
+#[test]
+fn test_split_award_wins_over_refund_split() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, dispute_id) = setup_split_award_dispute(&env);
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    let v4 = Address::generate(&env);
+    // 3 SplitAward vs 1 RefundSplit — SplitAward wins.
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::SplitAward(6000, 4000), &String::from_str(&env, "sa"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::SplitAward(6000, 4000), &String::from_str(&env, "sa"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::SplitAward(6000, 4000), &String::from_str(&env, "sa"));
+    client.cast_vote(&dispute_id, &v4, &VoteChoice::RefundSplit(50), &String::from_str(&env, "rs"));
+
+    let status = client.resolve_dispute(&dispute_id);
+    assert_eq!(status, DisputeStatus::SplitAward(6000));
+}

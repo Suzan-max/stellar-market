@@ -40,6 +40,7 @@ pub enum DisputeError {
     DelegationNotFound = 15,
     AlreadyDelegated = 16,
     DelegateAlreadyVoted = 17,
+    InvalidSplitBps = 18,
 }
 
 #[contracttype]
@@ -51,6 +52,7 @@ pub enum DisputeStatus {
     ResolvedForFreelancer,
     RefundedBoth,
     RefundSplit(u32),
+    SplitAward(u32),
     Escalated,
 }
 
@@ -70,6 +72,7 @@ pub enum DisputeResolution {
     FreelancerWins,
     RefundBoth,
     RefundSplit(u32),
+    SplitAward(u32),
     Escalate,
 }
 
@@ -79,6 +82,9 @@ pub enum VoteChoice {
     Client,
     Freelancer,
     RefundSplit(u32),
+    /// Basis-point split: first value is client_bps (0–10000), second is freelancer_bps.
+    /// The two values must sum to 10000.
+    SplitAward(u32, u32),
 }
 
 #[contracttype]
@@ -104,6 +110,7 @@ pub struct Dispute {
     pub votes_for_freelancer: u32,
     pub votes_for_refund_split: u32,
     pub refund_split_sum: u64,
+    pub votes_for_split_award: u32,
     pub min_votes: u32,
     pub tie_break_method: TieBreakMethod,
     pub created_at: u64,
@@ -584,6 +591,7 @@ impl DisputeContract {
             votes_for_freelancer: 0,
             votes_for_refund_split: 0,
             refund_split_sum: 0,
+            votes_for_split_award: 0,
             min_votes: if min_votes < 3 { 3 } else { min_votes },
             tie_break_method: tie_break_method.unwrap_or(TieBreakMethod::RefundBoth),
             created_at: env.ledger().timestamp(),
@@ -721,6 +729,12 @@ impl DisputeContract {
                 dispute.votes_for_refund_split += 1;
                 dispute.refund_split_sum =
                     dispute.refund_split_sum.saturating_add(pct_client as u64);
+            }
+            VoteChoice::SplitAward(client_bps, freelancer_bps) => {
+                if client_bps.saturating_add(freelancer_bps) != 10_000 {
+                    return Err(DisputeError::InvalidSplitBps);
+                }
+                dispute.votes_for_split_award += 1;
             }
         }
 
@@ -1073,6 +1087,29 @@ impl DisputeContract {
     }
 }
 
+/// Returns the median client_bps from all SplitAward votes using insertion sort.
+/// Falls back to 5000 (50/50) when no SplitAward votes are present.
+fn compute_median_bps(env: &Env, votes: &Vec<Vote>) -> u32 {
+    let mut sorted = Vec::<u32>::new(env);
+    for vote in votes.iter() {
+        if let VoteChoice::SplitAward(client_bps, _) = vote.choice {
+            let mut pos = sorted.len();
+            for i in 0..sorted.len() {
+                if client_bps <= sorted.get(i).unwrap() {
+                    pos = i;
+                    break;
+                }
+            }
+            sorted.insert(pos, client_bps);
+        }
+    }
+    let n = sorted.len();
+    if n == 0 {
+        return 5_000;
+    }
+    sorted.get(n / 2).unwrap()
+}
+
 fn internal_resolve(
     env: &Env,
     dispute_id: u64,
@@ -1084,27 +1121,45 @@ fn internal_resolve(
         || dispute.status == DisputeStatus::ResolvedForFreelancer
         || dispute.status == DisputeStatus::RefundedBoth
         || matches!(dispute.status, DisputeStatus::RefundSplit(_))
+        || matches!(dispute.status, DisputeStatus::SplitAward(_))
         || dispute.status == DisputeStatus::Escalated
     {
         return Err(DisputeError::AlreadyResolved);
     }
 
-    let total_votes =
-        dispute.votes_for_client + dispute.votes_for_freelancer + dispute.votes_for_refund_split;
+    let total_votes = dispute.votes_for_client
+        + dispute.votes_for_freelancer
+        + dispute.votes_for_refund_split
+        + dispute.votes_for_split_award;
     if !force && total_votes < dispute.min_votes {
         return Err(DisputeError::NotEnoughVotes);
     }
 
+    let sa = dispute.votes_for_split_award;
     if dispute.votes_for_client > dispute.votes_for_freelancer
         && dispute.votes_for_client > dispute.votes_for_refund_split
+        && dispute.votes_for_client > sa
     {
         dispute.status = DisputeStatus::ResolvedForClient;
     } else if dispute.votes_for_freelancer > dispute.votes_for_client
         && dispute.votes_for_freelancer > dispute.votes_for_refund_split
+        && dispute.votes_for_freelancer > sa
     {
         dispute.status = DisputeStatus::ResolvedForFreelancer;
+    } else if sa > dispute.votes_for_client
+        && sa > dispute.votes_for_freelancer
+        && sa > dispute.votes_for_refund_split
+    {
+        let stored_votes: Vec<Vote> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Votes(dispute_id))
+            .unwrap_or(Vec::new(env));
+        let median = compute_median_bps(env, &stored_votes);
+        dispute.status = DisputeStatus::SplitAward(median);
     } else if dispute.votes_for_refund_split > dispute.votes_for_client
         && dispute.votes_for_refund_split > dispute.votes_for_freelancer
+        && dispute.votes_for_refund_split > sa
     {
         let avg = dispute.refund_split_sum / dispute.votes_for_refund_split as u64;
         dispute.status = DisputeStatus::RefundSplit(avg as u32);
@@ -1125,6 +1180,7 @@ fn internal_resolve(
         DisputeStatus::ResolvedForFreelancer => DisputeResolution::FreelancerWins,
         DisputeStatus::RefundedBoth => DisputeResolution::RefundBoth,
         DisputeStatus::RefundSplit(pct) => DisputeResolution::RefundSplit(pct),
+        DisputeStatus::SplitAward(bps) => DisputeResolution::SplitAward(bps),
         _ => DisputeResolution::Escalate,
     };
 
@@ -1151,6 +1207,7 @@ fn internal_resolve(
                 DisputeResolution::FreelancerWins => dispute.client.clone(),
                 DisputeResolution::RefundBoth => dispute.initiator.clone(),
                 DisputeResolution::RefundSplit(_) => dispute.initiator.clone(),
+                DisputeResolution::SplitAward(_) => dispute.initiator.clone(),
                 DisputeResolution::Escalate => unreachable!(),
             };
 
