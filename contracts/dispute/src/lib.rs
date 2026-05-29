@@ -132,6 +132,10 @@ enum DataKey {
     VoteDelegation(Address, u64),
     /// Maps (delegate, job_id) → owner address. Used in cast_vote to resolve the owner.
     DelegationOwner(Address, u64),
+    /// Records the ledger sequence when a dispute last closed for a (client, freelancer) pair.
+    LastDisputeLedger(Address, Address),
+    /// Admin-configurable cooldown duration in ledgers between disputes for the same party pair.
+    CooldownDuration,
 }
 
 fn require_not_paused(env: &Env) -> Result<(), DisputeError> {
@@ -166,6 +170,7 @@ const DEFAULT_SLASH_AMOUNT: u64 = 50;
 const DEFAULT_REPUTATION_SLASH_BPS: u32 = 500; // 5%
 const DISPUTE_COOLDOWN_SECS: u64 = 86_400;
 const VOTING_PERIOD_SECS: u64 = 604_800; // 7 days
+const DEFAULT_PARTY_COOLDOWN_SECS: u64 = 1_209_600; // 14 days
 
 /// Maximum number of jobs to look back for conflict detection to avoid instruction limits.
 const MAX_CONFLICT_LOOKBACK: u64 = 100;
@@ -238,6 +243,14 @@ fn bump_vote_delegation_ttl(env: &Env, owner: &Address, job_id: u64) {
 fn bump_delegation_owner_ttl(env: &Env, delegate: &Address, job_id: u64) {
     env.storage().persistent().extend_ttl(
         &DataKey::DelegationOwner(delegate.clone(), job_id),
+        MIN_TTL_THRESHOLD,
+        MIN_TTL_EXTEND_TO,
+    );
+}
+
+fn bump_last_dispute_ledger_ttl(env: &Env, client: &Address, freelancer: &Address) {
+    env.storage().persistent().extend_ttl(
+        &DataKey::LastDisputeLedger(client.clone(), freelancer.clone()),
         MIN_TTL_THRESHOLD,
         MIN_TTL_EXTEND_TO,
     );
@@ -492,6 +505,23 @@ impl DisputeContract {
         Ok(())
     }
 
+    /// Set the per-party-pair cooldown duration in seconds (admin only).
+    pub fn set_cooldown_duration(env: Env, admin: Address, seconds: u64) -> Result<(), DisputeError> {
+        admin.require_auth();
+        require_not_paused(&env)?;
+        require_admin(&env, &admin)?;
+
+        env.storage().instance().set(&DataKey::CooldownDuration, &seconds);
+        bump_dispute_count_ttl(&env);
+
+        env.events().publish(
+            (symbol_short!("dispute"), symbol_short!("cooldown")),
+            (admin, seconds),
+        );
+
+        Ok(())
+    }
+
     /// Check if an address is eligible to vote based on reputation.
     pub fn is_eligible_voter(env: Env, voter: Address) -> Result<bool, DisputeError> {
         let reputation_contract: Address = env
@@ -552,6 +582,24 @@ impl DisputeContract {
                 return Err(DisputeError::DisputeCooldown);
             }
             bump_last_dispute_closed_ttl(&env, job_id);
+        }
+
+        // Per-party-pair cooldown: same client/freelancer pair cannot re-dispute until the
+        // configured window has elapsed since the last dispute resolved between them.
+        let party_cooldown: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CooldownDuration)
+            .unwrap_or(DEFAULT_PARTY_COOLDOWN_SECS);
+        if let Some(last_ts) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, u64>(&DataKey::LastDisputeLedger(client.clone(), freelancer.clone()))
+        {
+            if env.ledger().timestamp() < last_ts.saturating_add(party_cooldown) {
+                return Err(DisputeError::DisputeCooldown);
+            }
+            bump_last_dispute_ledger_ttl(&env, &client, &freelancer);
         }
 
         let mut count: u64 = env
@@ -1203,6 +1251,12 @@ fn internal_resolve(
         .persistent()
         .set(&DataKey::LastDisputeClosedAt(dispute.job_id), &env.ledger().timestamp());
     bump_last_dispute_closed_ttl(env, dispute.job_id);
+
+    env.storage().persistent().set(
+        &DataKey::LastDisputeLedger(dispute.client.clone(), dispute.freelancer.clone()),
+        &env.ledger().timestamp(),
+    );
+    bump_last_dispute_ledger_ttl(env, &dispute.client, &dispute.freelancer);
 
     env.storage()
         .persistent()
