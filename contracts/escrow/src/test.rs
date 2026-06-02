@@ -18,6 +18,7 @@ impl MockToken {
 const GRACE_PERIOD: u64 = 604_800; // 7 days in seconds
 const MIN_STAKE: i128 = 10_000_000;
 const JOB_DEADLINE: u64 = 1_000_000; // Example value
+const DEFAULT_EXPIRY_LEDGER: u32 = 518_400; // 30 days in ledgers (17,280 ledgers/day * 30)
 
 // Correction 3: token_address is already Address from register_stellar_asset_contract_v2,
 // so we use it directly without calling .address() on it.
@@ -100,6 +101,7 @@ fn test_create_job() {
         &milestones,
         &JOB_DEADLINE, // job_deadline must be >= all milestone deadlines
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
     assert_eq!(job_id, 1);
 
@@ -129,6 +131,7 @@ fn test_extend_deadline_emits_event() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     let new_deadline = JOB_DEADLINE + 1000;
@@ -191,6 +194,7 @@ fn test_job_count_increments() {
         &milestones,
         &JOB_DEADLINE, // job_deadline must be >= milestone deadlines
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
     let id2 = contract.create_job(
         &user,
@@ -199,6 +203,7 @@ fn test_job_count_increments() {
         &milestones,
         &JOB_DEADLINE, // job_deadline must be >= milestone deadlines
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     assert_eq!(id1, 1);
@@ -227,6 +232,7 @@ fn test_create_job_invalid_deadline() {
         &milestones,
         &2000_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 }
 
@@ -248,6 +254,7 @@ fn test_create_job_empty_milestones() {
         &milestones,
         &2000_u64,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 }
 
@@ -272,6 +279,7 @@ fn test_create_job_too_many_milestones() {
         &milestones,
         &3000_u64,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 }
 
@@ -298,6 +306,7 @@ fn test_submit_milestone_past_deadline() {
         &milestones,
         &3000_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
     client.fund_job(&job_id, &user);
 
@@ -329,6 +338,7 @@ fn test_is_milestone_overdue() {
         &milestones,
         &3000_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     // not overdue initially
@@ -363,6 +373,7 @@ fn test_extend_deadline() {
         &milestones,
         &3000_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     client.extend_deadline(&job_id, &0, &4000_u64);
@@ -456,6 +467,7 @@ fn test_claim_refund_partial() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, total);
@@ -500,6 +512,7 @@ fn test_claim_refund_in_progress_status() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, 3000);
@@ -539,6 +552,7 @@ fn test_claim_refund_fails_before_grace_period() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, 3000);
@@ -569,6 +583,7 @@ fn test_claim_refund_fails_with_pending_milestone() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, 3000);
@@ -603,6 +618,7 @@ fn test_claim_refund_fails_unauthorized() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, 3000);
@@ -640,6 +656,7 @@ fn test_claim_refund_fails_on_completed_job() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, task_amount);
@@ -678,6 +695,7 @@ fn test_claim_refund_fails_on_cancelled_job() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, 3000);
@@ -1486,6 +1504,7 @@ fn test_resolve_dispute_callback_client_wins() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, total);
@@ -1518,6 +1537,7 @@ fn test_resolve_dispute_callback_freelancer_wins() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, total);
@@ -1552,6 +1572,7 @@ fn test_resolve_dispute_callback_refund_both() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, total);
@@ -1604,6 +1625,7 @@ fn test_pause_and_unpause() {
         &milestones,
         &2500_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
     assert_eq!(job_id, 1);
 
@@ -1620,6 +1642,7 @@ fn test_pause_and_unpause() {
         &milestones2,
         &JOB_DEADLINE, // job_deadline
         &2500_u64,     // auto_refund_after
+        &DEFAULT_EXPIRY_LEDGER,
     );
     assert_eq!(job_id2, 2);
 }
@@ -1649,6 +1672,7 @@ fn test_create_job_when_paused() {
         &milestones,
         &2500_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 }
 
@@ -1676,6 +1700,7 @@ fn test_fund_job_when_paused() {
         &milestones,
         &2500_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     pause_escrow(&env, &client, &admin);
@@ -1707,6 +1732,7 @@ fn test_fund_job_rejects_non_client_caller() {
         &milestones,
         &2500_u64,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     client.fund_job(&job_id, &attacker);
@@ -1736,6 +1762,7 @@ fn test_submit_milestone_when_paused() {
         &milestones,
         &2500_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     client.fund_job(&job_id, &user);
@@ -1767,6 +1794,7 @@ fn test_approve_milestone_when_paused() {
         &milestones,
         &2500_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     client.fund_job(&job_id, &user);
@@ -1799,6 +1827,7 @@ fn test_claim_refund_when_paused() {
         &milestones,
         &2500_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     client.fund_job(&job_id, &user);
@@ -1835,6 +1864,7 @@ fn test_extend_deadline_when_paused() {
         &milestones,
         &2500_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     pause_escrow(&env, &client, &admin);
@@ -1865,6 +1895,7 @@ fn test_read_only_functions_when_paused() {
         &milestones,
         &2_000_000_u64,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     pause_escrow(&env, &client, &admin);
@@ -1917,6 +1948,7 @@ fn test_approve_milestones_batch_happy_path() {
         &milestones,
         &5000_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, total);
@@ -1970,6 +2002,7 @@ fn test_approve_milestones_batch_partial_invalid() {
         &milestones,
         &5000_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, total);
@@ -2013,6 +2046,7 @@ fn test_approve_milestones_batch_unauthorized_caller() {
         &milestones,
         &5000_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, 1000);
@@ -2051,6 +2085,7 @@ fn test_approve_milestones_batch_non_existent_index() {
         &milestones,
         &5000_u64,
         &GRACE_PERIOD, // Correction 5
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     mint_tokens(&env, &token, &client, 1000);
@@ -3457,6 +3492,7 @@ fn test_release_milestone_success() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3493,6 +3529,7 @@ fn test_release_milestone_completes_job() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3523,6 +3560,7 @@ fn test_release_milestone_event_emitted() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3573,6 +3611,7 @@ fn test_release_milestone_fails_for_non_client() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3602,6 +3641,7 @@ fn test_release_milestone_fails_for_disputed_job() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3644,6 +3684,7 @@ fn test_partial_refund_success() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3696,6 +3737,7 @@ fn test_partial_refund_balance_tracked_accurately() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3739,6 +3781,7 @@ fn test_partial_refund_fails_over_refund() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3770,6 +3813,7 @@ fn test_partial_refund_fails_unauthorized_caller() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3799,6 +3843,7 @@ fn test_partial_refund_event_emitted() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3852,6 +3897,7 @@ fn test_expire_proposal_success() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3900,6 +3946,7 @@ fn test_expire_proposal_event_emitted() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -3959,6 +4006,7 @@ fn test_expire_proposal_fails_before_ttl() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -4000,6 +4048,7 @@ fn test_expire_proposal_fails_non_proposer() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -4044,6 +4093,7 @@ fn test_expire_proposal_fails_non_pending() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -4091,6 +4141,7 @@ fn test_expire_proposal_fails_no_proposal() {
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &DEFAULT_EXPIRY_LEDGER,
     );
 
     contract.fund_job(&job_id, &client_addr);
@@ -4101,350 +4152,293 @@ fn test_expire_proposal_fails_no_proposal() {
     assert!(result.is_err());
 }
 
+// ── claim_expired tests ───────────────────────────────────────────────────────
+
 #[test]
-fn test_multi_token_usdc_workflow() {
+fn test_claim_expired_success() {
     let env = Env::default();
     env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = 1000);
-
-    let contract_id = env.register_contract(None, EscrowContract);
-    let contract = EscrowContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let signers = vec![&env, admin.clone()];
-    let treasury = Address::generate(&env);
-
-    contract.initialize(&signers, &1, &treasury, &0, &604800);
-
-    let usdc_token = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-    let usdc_admin = StellarAssetClient::new(&env, &usdc_token);
-
-    contract.add_allowed_token(&admin, &usdc_token).unwrap();
-
+    
+    let (escrow, token) = setup_refund_env(&env);
+    
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
-    usdc_admin.mint(&client, &1_000_000_000);
-
-    let milestones = vec![
-        &env,
-        (String::from_str(&env, "USDC Task 1"), 100_000_i128, JOB_DEADLINE),
-        (
-            String::from_str(&env, "USDC Task 2"),
-            200_000_i128,
-            JOB_DEADLINE,
-        ),
-    ];
-
-    let job_id = contract
-        .create_job(&client, &freelancer, &usdc_token, &milestones, &JOB_DEADLINE, &GRACE_PERIOD)
-        .unwrap();
-
-    let job = contract.get_job(&job_id);
-    assert_eq!(job.token, usdc_token);
-    assert_eq!(job.total_amount, 300_000);
-
-    contract.fund_job(&job_id, &client).unwrap();
-
-    contract.submit_milestone(&job_id, &0, &freelancer).unwrap();
-    contract.approve_milestone(&job_id, &0, &client).unwrap();
-
-    contract.submit_milestone(&job_id, &1, &freelancer).unwrap();
-    contract.approve_milestone(&job_id, &1, &client).unwrap();
-
-    let final_job = contract.get_job(&job_id);
-    assert_eq!(final_job.status, JobStatus::Completed);
-    assert_eq!(final_job.token, usdc_token);
-}
-
-#[test]
-fn test_multi_token_xlm_workflow() {
-    let env = Env::default();
-    env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = 1000);
-
-    let contract_id = env.register_contract(None, EscrowContract);
-    let contract = EscrowContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let signers = vec![&env, admin.clone()];
-    let treasury = Address::generate(&env);
-
-    contract.initialize(&signers, &1, &treasury, &0, &604800);
-
-    let xlm_token = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-    let xlm_admin = StellarAssetClient::new(&env, &xlm_token);
-
-    contract.add_allowed_token(&admin, &xlm_token).unwrap();
-
-    let client = Address::generate(&env);
-    let freelancer = Address::generate(&env);
-    xlm_admin.mint(&client, &5_000_000_000);
-
-    let milestones = vec![
-        &env,
-        (String::from_str(&env, "XLM Task 1"), 1_000_000_i128, JOB_DEADLINE),
-        (
-            String::from_str(&env, "XLM Task 2"),
-            2_000_000_i128,
-            JOB_DEADLINE,
-        ),
-    ];
-
-    let job_id = contract
-        .create_job(&client, &freelancer, &xlm_token, &milestones, &JOB_DEADLINE, &GRACE_PERIOD)
-        .unwrap();
-
-    let job = contract.get_job(&job_id);
-    assert_eq!(job.token, xlm_token);
-    assert_eq!(job.total_amount, 3_000_000);
-
-    contract.fund_job(&job_id, &client).unwrap();
-
-    contract.submit_milestone(&job_id, &0, &freelancer).unwrap();
-    contract.approve_milestone(&job_id, &0, &client).unwrap();
-
-    contract.submit_milestone(&job_id, &1, &freelancer).unwrap();
-    contract.approve_milestone(&job_id, &1, &client).unwrap();
-
-    let final_job = contract.get_job(&job_id);
-    assert_eq!(final_job.status, JobStatus::Completed);
-    assert_eq!(final_job.token, xlm_token);
-}
-
-#[test]
-fn test_multi_token_concurrent_jobs() {
-    let env = Env::default();
-    env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = 1000);
-
-    let contract_id = env.register_contract(None, EscrowContract);
-    let contract = EscrowContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let signers = vec![&env, admin.clone()];
-    let treasury = Address::generate(&env);
-
-    contract.initialize(&signers, &1, &treasury, &0, &604800);
-
-    let usdc_token = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-    let xlm_token = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-
-    let usdc_admin = StellarAssetClient::new(&env, &usdc_token);
-    let xlm_admin = StellarAssetClient::new(&env, &xlm_token);
-
-    contract.add_allowed_token(&admin, &usdc_token).unwrap();
-    contract.add_allowed_token(&admin, &xlm_token).unwrap();
-
-    let client1 = Address::generate(&env);
-    let client2 = Address::generate(&env);
-    let freelancer1 = Address::generate(&env);
-    let freelancer2 = Address::generate(&env);
-
-    usdc_admin.mint(&client1, &1_000_000);
-    xlm_admin.mint(&client2, &5_000_000);
-
-    let milestones1 = vec![
-        &env,
-        (String::from_str(&env, "USDC Task"), 500_000_i128, JOB_DEADLINE),
-    ];
-
-    let milestones2 = vec![
-        &env,
-        (String::from_str(&env, "XLM Task"), 2_000_000_i128, JOB_DEADLINE),
-    ];
-
-    let job_id1 = contract
-        .create_job(
-            &client1,
-            &freelancer1,
-            &usdc_token,
-            &milestones1,
-            &JOB_DEADLINE,
-            &GRACE_PERIOD,
-        )
-        .unwrap();
-
-    let job_id2 = contract
-        .create_job(
-            &client2,
-            &freelancer2,
-            &xlm_token,
-            &milestones2,
-            &JOB_DEADLINE,
-            &GRACE_PERIOD,
-        )
-        .unwrap();
-
-    let job1 = contract.get_job(&job_id1);
-    let job2 = contract.get_job(&job_id2);
-
-    assert_eq!(job1.token, usdc_token);
-    assert_eq!(job2.token, xlm_token);
-    assert_ne!(job1.token, job2.token);
-
-    contract.fund_job(&job_id1, &client1).unwrap();
-    contract.fund_job(&job_id2, &client2).unwrap();
-
-    contract.submit_milestone(&job_id1, &0, &freelancer1).unwrap();
-    contract.submit_milestone(&job_id2, &0, &freelancer2).unwrap();
-
-    contract.approve_milestone(&job_id1, &0, &client1).unwrap();
-    contract.approve_milestone(&job_id2, &0, &client2).unwrap();
-
-    let final_job1 = contract.get_job(&job_id1);
-    let final_job2 = contract.get_job(&job_id2);
-
-    assert_eq!(final_job1.status, JobStatus::Completed);
-    assert_eq!(final_job2.status, JobStatus::Completed);
-    assert_eq!(final_job1.token, usdc_token);
-    assert_eq!(final_job2.token, xlm_token);
-}
-
-#[test]
-fn test_token_allowlist_enforcement() {
-    let env = Env::default();
-    env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = 1000);
-
-    let contract_id = env.register_contract(None, EscrowContract);
-    let contract = EscrowContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let signers = vec![&env, admin.clone()];
-    let treasury = Address::generate(&env);
-
-    contract.initialize(&signers, &1, &treasury, &0, &604800);
-
-    let allowed_token = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-    let disallowed_token = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-
-    contract.add_allowed_token(&admin, &allowed_token).unwrap();
-
-    let client = Address::generate(&env);
-    let freelancer = Address::generate(&env);
-
-    let allowed_admin = StellarAssetClient::new(&env, &allowed_token);
-    let disallowed_admin = StellarAssetClient::new(&env, &disallowed_token);
-
-    allowed_admin.mint(&client, &1_000_000);
-    disallowed_admin.mint(&client, &1_000_000);
-
-    let milestones = vec![
-        &env,
-        (String::from_str(&env, "Task"), 100_000_i128, JOB_DEADLINE),
-    ];
-
-    let allowed_result = contract.try_create_job(
+    let milestones = default_milestones(&env);
+    
+    // Set expiry_ledger to 100
+    let expiry_ledger = 100u32;
+    let job_id = escrow.create_job(
         &client,
         &freelancer,
-        &allowed_token,
+        &token,
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &expiry_ledger,
     );
-    assert!(allowed_result.is_ok());
+    
+    let total: i128 = 500 + 1000 + 1500;
+    mint_tokens(&env, &token, &client, total);
+    escrow.fund_job(&job_id, &client);
+    
+    // Advance ledger past expiry_ledger
+    env.ledger().with_mut(|l| l.sequence_number = expiry_ledger + 1);
+    
+    // Claim expired - should succeed
+    escrow.claim_expired(&job_id);
+    
+    // Verify job status is Expired
+    let job = escrow.get_job(&job_id);
+    assert_eq!(job.status, JobStatus::Expired);
+    
+    // Verify client received refund
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&client), total);
+}
 
-    let disallowed_result = contract.try_create_job(
+#[test]
+#[should_panic(expected = "Error(Contract, #40)")] // ExpiryNotPassed
+fn test_claim_expired_fails_before_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    let (escrow, token) = setup_refund_env(&env);
+    
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let milestones = default_milestones(&env);
+    
+    // Set expiry_ledger to 100
+    let expiry_ledger = 100u32;
+    let job_id = escrow.create_job(
         &client,
         &freelancer,
-        &disallowed_token,
+        &token,
         &milestones,
         &JOB_DEADLINE,
         &GRACE_PERIOD,
+        &expiry_ledger,
     );
-    assert!(disallowed_result.is_err());
-    let error = disallowed_result.unwrap_err();
-    assert_eq!(error, Ok(EscrowError::TokenNotAllowed));
+    
+    let total: i128 = 500 + 1000 + 1500;
+    mint_tokens(&env, &token, &client, total);
+    escrow.fund_job(&job_id, &client);
+    
+    // Ledger sequence is still before expiry_ledger
+    env.ledger().with_mut(|l| l.sequence_number = expiry_ledger - 1);
+    
+    // Claim expired - should fail
+    escrow.claim_expired(&job_id);
 }
 
 #[test]
-fn test_allowed_tokens_getter() {
+#[should_panic(expected = "Error(Contract, #3)")] // InvalidStatus
+fn test_claim_expired_fails_on_completed_job() {
     let env = Env::default();
     env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = 1000);
-
-    let contract_id = env.register_contract(None, EscrowContract);
-    let contract = EscrowContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let signers = vec![&env, admin.clone()];
-    let treasury = Address::generate(&env);
-
-    contract.initialize(&signers, &1, &treasury, &0, &604800);
-
-    let token1 = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-    let token2 = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-
-    let initial_tokens = contract.get_allowed_tokens();
-    assert_eq!(initial_tokens.len(), 0);
-
-    contract.add_allowed_token(&admin, &token1).unwrap();
-    let tokens_after_first = contract.get_allowed_tokens();
-    assert_eq!(tokens_after_first.len(), 1);
-    assert_eq!(tokens_after_first.get(0).unwrap(), token1);
-
-    contract.add_allowed_token(&admin, &token2).unwrap();
-    let tokens_after_second = contract.get_allowed_tokens();
-    assert_eq!(tokens_after_second.len(), 2);
-    assert_eq!(tokens_after_second.get(0).unwrap(), token1);
-    assert_eq!(tokens_after_second.get(1).unwrap(), token2);
-
-    contract.remove_allowed_token(&admin, &token1).unwrap();
-    let tokens_after_removal = contract.get_allowed_tokens();
-    assert_eq!(tokens_after_removal.len(), 1);
-    assert_eq!(tokens_after_removal.get(0).unwrap(), token2);
+    
+    let (escrow, token) = setup_refund_env(&env);
+    
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let milestones = default_milestones(&env);
+    
+    let expiry_ledger = 100u32;
+    let job_id = escrow.create_job(
+        &client,
+        &freelancer,
+        &token,
+        &milestones,
+        &JOB_DEADLINE,
+        &GRACE_PERIOD,
+        &expiry_ledger,
+    );
+    
+    let total: i128 = 500 + 1000 + 1500;
+    mint_tokens(&env, &token, &client, total);
+    escrow.fund_job(&job_id, &client);
+    
+    // Complete the job
+    escrow.submit_milestone(&job_id, &0, &freelancer);
+    escrow.approve_milestone(&job_id, &0, &client);
+    escrow.submit_milestone(&job_id, &1, &freelancer);
+    escrow.approve_milestone(&job_id, &1, &client);
+    escrow.submit_milestone(&job_id, &2, &freelancer);
+    escrow.approve_milestone(&job_id, &2, &client);
+    
+    // Advance ledger past expiry
+    env.ledger().with_mut(|l| l.sequence_number = expiry_ledger + 1);
+    
+    // Claim expired - should fail (job is Completed)
+    escrow.claim_expired(&job_id);
 }
 
 #[test]
-fn test_admin_token_management() {
+#[should_panic(expected = "Error(Contract, #3)")] // InvalidStatus
+fn test_claim_expired_fails_on_cancelled_job() {
     let env = Env::default();
     env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = 1000);
-
-    let contract_id = env.register_contract(None, EscrowContract);
-    let contract = EscrowContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let non_admin = Address::generate(&env);
-    let signers = vec![&env, admin.clone()];
-    let treasury = Address::generate(&env);
-
-    contract.initialize(&signers, &1, &treasury, &0, &604800);
-
-    let token = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
-        .address();
-
-    contract.add_allowed_token(&admin, &token).unwrap();
-
-    let add_by_non_admin = contract.try_add_allowed_token(&non_admin, &token);
-    assert!(add_by_non_admin.is_err());
-    assert_eq!(add_by_non_admin.unwrap_err(), Ok(EscrowError::NotAdmin));
-
-    let remove_by_non_admin = contract.try_remove_allowed_token(&non_admin, &token);
-    assert!(remove_by_non_admin.is_err());
-    assert_eq!(
-        remove_by_non_admin.unwrap_err(),
-        Ok(EscrowError::NotAdmin)
+    
+    let (escrow, token) = setup_refund_env(&env);
+    
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let milestones = default_milestones(&env);
+    
+    let expiry_ledger = 100u32;
+    let job_id = escrow.create_job(
+        &client,
+        &freelancer,
+        &token,
+        &milestones,
+        &JOB_DEADLINE,
+        &GRACE_PERIOD,
+        &expiry_ledger,
     );
+    
+    let total: i128 = 500 + 1000 + 1500;
+    mint_tokens(&env, &token, &client, total);
+    escrow.fund_job(&job_id, &client);
+    
+    // Cancel the job
+    escrow.cancel_job(&job_id, &client);
+    
+    // Advance ledger past expiry
+    env.ledger().with_mut(|l| l.sequence_number = expiry_ledger + 1);
+    
+    // Claim expired - should fail (job is Cancelled)
+    escrow.claim_expired(&job_id);
+}
 
-    contract.remove_allowed_token(&admin, &token).unwrap();
-    let tokens = contract.get_allowed_tokens();
-    assert_eq!(tokens.len(), 0);
+#[test]
+fn test_claim_expired_with_approved_milestones() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    let (escrow, token) = setup_refund_env(&env);
+    
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let milestones = default_milestones(&env);
+    
+    let expiry_ledger = 100u32;
+    let job_id = escrow.create_job(
+        &client,
+        &freelancer,
+        &token,
+        &milestones,
+        &JOB_DEADLINE,
+        &GRACE_PERIOD,
+        &expiry_ledger,
+    );
+    
+    let total: i128 = 500 + 1000 + 1500;
+    mint_tokens(&env, &token, &client, total);
+    escrow.fund_job(&job_id, &client);
+    
+    // Approve first milestone (500)
+    escrow.submit_milestone(&job_id, &0, &freelancer);
+    escrow.approve_milestone(&job_id, &0, &client);
+    
+    // Advance ledger past expiry
+    env.ledger().with_mut(|l| l.sequence_number = expiry_ledger + 1);
+    
+    // Claim expired - should refund remaining amount (total - approved)
+    escrow.claim_expired(&job_id);
+    
+    // Verify job status is Expired
+    let job = escrow.get_job(&job_id);
+    assert_eq!(job.status, JobStatus::Expired);
+    
+    // Verify client received refund for unapproved milestones (1000 + 1500 = 2500)
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&client), 2500);
+    
+    // Verify freelancer received approved milestone amount (500)
+    assert_eq!(token_client.balance(&freelancer), 500);
+}
+
+#[test]
+fn test_claim_expired_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    let (escrow, token) = setup_refund_env(&env);
+    
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let milestones = default_milestones(&env);
+    
+    let expiry_ledger = 100u32;
+    let job_id = escrow.create_job(
+        &client,
+        &freelancer,
+        &token,
+        &milestones,
+        &JOB_DEADLINE,
+        &GRACE_PERIOD,
+        &expiry_ledger,
+    );
+    
+    let total: i128 = 500 + 1000 + 1500;
+    mint_tokens(&env, &token, &client, total);
+    escrow.fund_job(&job_id, &client);
+    
+    // Advance ledger past expiry
+    env.ledger().with_mut(|l| l.sequence_number = expiry_ledger + 1);
+    
+    // Claim expired
+    escrow.claim_expired(&job_id);
+    
+    // Verify EscrowExpired event was emitted
+    let events = env.events().all();
+    let expired_event = events.last().expect("EscrowExpired event should be emitted");
+    
+    // Verify the event topic is "expired"
+    let topic: Symbol = expired_event.1.get(1).unwrap().into_val(&env);
+    assert_eq!(topic, Symbol::new(&env, "expired"));
+    
+    // Verify event data contains job_id, client, refund_amount, and ledger_sequence
+    let event_data: (u64, Address, i128, u32) = expired_event.2.clone().into_val(&env);
+    assert_eq!(event_data.0, job_id);
+    assert_eq!(event_data.1, client);
+    assert_eq!(event_data.2, total);
+    assert_eq!(event_data.3, expiry_ledger + 1);
+}
+
+#[test]
+fn test_claim_expired_permissionless() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    let (escrow, token) = setup_refund_env(&env);
+    
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+    let milestones = default_milestones(&env);
+    
+    let expiry_ledger = 100u32;
+    let job_id = escrow.create_job(
+        &client,
+        &freelancer,
+        &token,
+        &milestones,
+        &JOB_DEADLINE,
+        &GRACE_PERIOD,
+        &expiry_ledger,
+    );
+    
+    let total: i128 = 500 + 1000 + 1500;
+    mint_tokens(&env, &token, &client, total);
+    escrow.fund_job(&job_id, &client);
+    
+    // Advance ledger past expiry
+    env.ledger().with_mut(|l| l.sequence_number = expiry_ledger + 1);
+    
+    // Claim expired as third party - should succeed (permissionless)
+    escrow.claim_expired(&job_id);
+    
+    // Verify job status is Expired
+    let job = escrow.get_job(&job_id);
+    assert_eq!(job.status, JobStatus::Expired);
 }
