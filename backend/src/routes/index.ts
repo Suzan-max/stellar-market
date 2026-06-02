@@ -46,5 +46,6 @@ router.use("/platform", platformRoutes);
 router.use("/portfolio", portfolioRoutes);
 router.use("/webhooks", webhookRoutes);
 router.use("/reports", reportRoutes);
+router.use("/categories", categoryRoutes);
 
 export default router;
