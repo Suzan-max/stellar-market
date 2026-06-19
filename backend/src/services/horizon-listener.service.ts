@@ -315,8 +315,22 @@ async function handleBadgeAwarded(event: SorobanEvent): Promise<void> {
 
 // ─── event dispatch ───────────────────────────────────────────────────────────
 
+async function resolvePreRegisteredTx(txHash: string, ledger: number): Promise<void> {
+  try {
+    await prisma.transaction.updateMany({
+      where: { txHash, status: "PENDING" },
+      data: { status: "SUCCESS", confirmedLedger: ledger },
+    });
+  } catch (err) {
+    logger.warn({ err, txHash }, "[HorizonListener] Failed to resolve pre-registered tx");
+  }
+}
+
 async function processEvent(event: SorobanEvent): Promise<void> {
   const [contract, name] = topicToStrings(event);
+
+  // Promote any PENDING pre-registration for this txHash to SUCCESS immediately.
+  await resolvePreRegisteredTx(event.txHash, event.ledger);
 
   try {
     if (contract === "escrow") {
