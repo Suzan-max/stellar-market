@@ -33,7 +33,7 @@ describe("ReputationCacheService", () => {
       };
 
       const mockRedis = {
-        get: jest.fn().mockResolvedValue(JSON.stringify(mockReputation)),
+        get: jest.fn<(key: string) => Promise<string | null>>().mockResolvedValue(JSON.stringify(mockReputation)),
       };
 
       (RedisClient.isRedisConnected as jest.Mock).mockReturnValue(true);
@@ -49,8 +49,8 @@ describe("ReputationCacheService", () => {
 
     it("should fetch from chain on cache miss", async () => {
       const mockRedis = {
-        get: jest.fn().mockResolvedValue(null),
-        setex: jest.fn().mockResolvedValue("OK"),
+        get: jest.fn<(key: string) => Promise<string | null>>().mockResolvedValue(null),
+        setex: jest.fn<(key: string, ttl: number, value: string) => Promise<string>>().mockResolvedValue("OK"),
       };
 
       (RedisClient.isRedisConnected as jest.Mock).mockReturnValue(true);
@@ -70,7 +70,7 @@ describe("ReputationCacheService", () => {
   describe("invalidateCache", () => {
     it("should delete cache entry for wallet address", async () => {
       const mockRedis = {
-        del: jest.fn().mockResolvedValue(1),
+        del: jest.fn<(key: string) => Promise<number>>().mockResolvedValue(1),
       };
 
       (RedisClient.isRedisConnected as jest.Mock).mockReturnValue(true);
@@ -93,7 +93,7 @@ describe("ReputationCacheService", () => {
   describe("getCacheStats", () => {
     it("should return stats when Redis is connected", async () => {
       const mockRedis = {
-        keys: jest.fn().mockResolvedValue(["rep:GTEST1", "rep:GTEST2", "rep:GTEST3"]),
+        keys: jest.fn<(pattern: string) => Promise<string[]>>().mockResolvedValue(["rep:GTEST1", "rep:GTEST2", "rep:GTEST3"]),
       };
 
       (RedisClient.isRedisConnected as jest.Mock).mockReturnValue(true);

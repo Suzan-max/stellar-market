@@ -1202,15 +1202,15 @@ router.post(
     try {
       const { walletAddress } = req.params;
 
-      if (!walletAddress) {
-        res.status(400).json({ error: "Wallet address is required" });
+      if (!walletAddress || Array.isArray(walletAddress)) {
+        res.status(400).json({ error: "Invalid wallet address" });
         return;
       }
 
       await ReputationCacheService.invalidateCache(walletAddress);
 
       await logAdminAction(
-        req.user!.id,
+        req.userId!,
         "CACHE_INVALIDATE",
         walletAddress,
         { walletAddress }

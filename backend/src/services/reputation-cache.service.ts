@@ -99,31 +99,40 @@ export class ReputationCacheService {
       return null;
     }
 
-    return reputationCB.execute(async () => {
-      try {
-        const server = new rpc.Server(config.stellar.rpcUrl);
-        const contract = new Contract(contractId);
-        const address = new Address(walletAddress);
+    // Check circuit breaker before proceeding
+    if (!reputationCB.allowRequest()) {
+      logger.debug("Circuit breaker OPEN - skipping reputation fetch");
+      return null;
+    }
 
-        // Call get_reputation on contract
-        const result = await server.simulateTransaction(
-          new (await import("@stellar/stellar-sdk")).TransactionBuilder(
-            new (await import("@stellar/stellar-sdk")).Account(
-              "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-              "0"
-            ),
-            {
-              fee: "100",
-              networkPassphrase: config.stellar.networkPassphrase,
-            }
-          )
-            .addOperation(contract.call("get_reputation", address.toScVal()))
-            .setTimeout(30)
-            .build()
-        );
+    try {
+      const server = new rpc.Server(config.stellar.rpcUrl);
+      const contract = new Contract(contractId);
+      const address = new Address(walletAddress);
 
-        if (result.results?.[0]?.retval) {
-          const native = scValToNative(result.results[0].retval) as any;
+      // Import stellar-sdk types
+      const { TransactionBuilder, Account } = await import("@stellar/stellar-sdk");
+
+      // Call get_reputation on contract
+      const result = await server.simulateTransaction(
+        new TransactionBuilder(
+          new Account(
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "0"
+          ),
+          {
+            fee: "100",
+            networkPassphrase: config.stellar.networkPassphrase,
+          }
+        )
+          .addOperation(contract.call("get_reputation", address.toScVal()))
+          .setTimeout(30)
+          .build()
+      );
+
+      // Check for successful simulation
+      if ("result" in result && result.result) {
+        const native = scValToNative(result.result.retval) as any;
 
           // Extract badge tier
           const tier = this.extractBadgeTier(native.tier);
@@ -138,25 +147,28 @@ export class ReputationCacheService {
           const rawEndorsementWeight = BigInt(native.endorsement_weight ?? 0);
           const endorsementWeight = Number(rawEndorsementWeight) / 100000;
 
-          return {
-            tier,
-            score: Number(native.value ?? 0),
-            disputeLossRate,
-            endorsementWeight: Math.min(endorsementWeight, 1.0), // Cap at 1.0
-            lastUpdated: Date.now(),
-          };
-        }
+        reputationCB.onSuccess();
 
-        return null;
-      } catch (error) {
-        // User might not have on-chain reputation yet
-        logger.debug(
-          { walletAddress, err: error },
-          "No on-chain reputation found"
-        );
-        return null;
+        return {
+          tier,
+          score: Number(native.value ?? 0),
+          disputeLossRate,
+          endorsementWeight: Math.min(endorsementWeight, 1.0), // Cap at 1.0
+          lastUpdated: Date.now(),
+        };
       }
-    });
+
+      reputationCB.onSuccess();
+      return null;
+    } catch (error) {
+      // User might not have on-chain reputation yet
+      reputationCB.onFailure();
+      logger.debug(
+        { walletAddress, err: error },
+        "No on-chain reputation found"
+      );
+      return null;
+    }
   }
 
   /**
@@ -287,51 +299,60 @@ export class ReputationCacheService {
     const contractId = config.stellar.reputationContractId;
     if (!contractId) return [];
 
-    return reputationCB.execute(async () => {
-      try {
-        const server = new rpc.Server(config.stellar.rpcUrl);
-        const contract = new Contract(contractId);
+    // Check circuit breaker before proceeding
+    if (!reputationCB.allowRequest()) {
+      logger.debug("Circuit breaker OPEN - skipping leaderboard fetch");
+      return [];
+    }
 
-        const result = await server.simulateTransaction(
-          new (await import("@stellar/stellar-sdk")).TransactionBuilder(
-            new (await import("@stellar/stellar-sdk")).Account(
-              "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-              "0"
-            ),
-            {
-              fee: "100",
-              networkPassphrase: config.stellar.networkPassphrase,
-            }
-          )
-            .addOperation(
-              contract.call(
-                "get_leaderboard",
-                new (await import("@stellar/stellar-sdk")).xdr.ScVal.scvU32(
-                  LEADERBOARD_SIZE
-                )
-              )
-            )
-            .setTimeout(30)
-            .build()
-        );
+    try {
+      const server = new rpc.Server(config.stellar.rpcUrl);
+      const contract = new Contract(contractId);
 
-        if (result.results?.[0]?.retval) {
-          const native = scValToNative(result.results[0].retval);
+      // Import stellar-sdk types
+      const { TransactionBuilder, Account, xdr } = await import("@stellar/stellar-sdk");
 
-          if (Array.isArray(native)) {
-            return native.map((entry: any) => ({
-              address: String(entry[0] ?? ""),
-              score: BigInt(entry[1] ?? 0),
-            }));
+      const result = await server.simulateTransaction(
+        new TransactionBuilder(
+          new Account(
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "0"
+          ),
+          {
+            fee: "100",
+            networkPassphrase: config.stellar.networkPassphrase,
           }
-        }
+        )
+          .addOperation(
+            contract.call(
+              "get_leaderboard",
+              xdr.ScVal.scvU32(LEADERBOARD_SIZE)
+            )
+          )
+          .setTimeout(30)
+          .build()
+      );
 
-        return [];
-      } catch (error) {
-        logger.warn({ err: error }, "Failed to fetch leaderboard");
-        return [];
+      // Check for successful simulation
+      if ("result" in result && result.result) {
+        const native = scValToNative(result.result.retval);
+
+        if (Array.isArray(native)) {
+          reputationCB.onSuccess();
+          return native.map((entry: any) => ({
+            address: String(entry[0] ?? ""),
+            score: BigInt(entry[1] ?? 0),
+          }));
+        }
       }
-    });
+
+      reputationCB.onSuccess();
+      return [];
+    } catch (error) {
+      reputationCB.onFailure();
+      logger.warn({ err: error }, "Failed to fetch leaderboard");
+      return [];
+    }
   }
 
   /**
