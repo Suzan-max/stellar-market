@@ -465,7 +465,6 @@ export class NotificationService {
   static async deleteAllRead(userId: string) {
     return prisma.notification.deleteMany({ where: { userId, read: true } });
   }
-}
 
   /**
    * Subscribe a user to push notifications
@@ -648,3 +647,4 @@ export class NotificationService {
     return notification;
   }
 }
+

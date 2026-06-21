@@ -3,6 +3,10 @@ const withPWA = require("next-pwa")({
   disable: process.env.NODE_ENV === "development",
   register: true,
   skipWaiting: true,
+  // Disable workbox CDN by using local workbox
+  fallbacks: {
+    document: "/offline",
+  },
   runtimeCaching: [
     {
       urlPattern: /^https?.*\/_next\/static\/.*/i,
@@ -54,6 +58,8 @@ const withPWA = require("next-pwa")({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Add empty turbopack config to silence warning, but we'll use webpack for PWA
+  turbopack: {},
   images: {
     remotePatterns: [
       // Local dev upload server

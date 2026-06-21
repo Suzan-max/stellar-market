@@ -66,10 +66,10 @@ export async function queueAction(
   await db.add(STORE_NAME, action);
 
   // Register background sync if supported
-  if ('serviceWorker' in navigator && 'SyncManager' in window) {
+  if ('serviceWorker' in navigator && 'sync' in ServiceWorkerRegistration.prototype) {
     try {
       const registration = await navigator.serviceWorker.ready;
-      await registration.sync.register(`pending-${type}`);
+      await (registration as any).sync.register(`pending-${type}`);
     } catch (error) {
       console.error('Error registering background sync:', error);
     }
