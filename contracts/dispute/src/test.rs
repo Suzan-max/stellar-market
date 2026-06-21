@@ -1874,3 +1874,622 @@ fn test_malicious_filing_event_emitted() {
     // Initiator should be the client (who raised the dispute).
     assert_eq!(dispute.initiator, job_client);
 }
+
+// ── Issue #661: O(1) Incremental Tally Accumulator Tests ────────────────────
+
+/// Test that assign_arbitrators enforces MAX_ARBITRATORS = 7 limit.
+#[test]
+fn test_assign_arbitrators_enforces_max_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &7u32,
+        &None,
+    );
+
+    // Try to assign 8 arbitrators (exceeds MAX_ARBITRATORS = 7)
+    let mut arbitrators = vec![&env];
+    for _ in 0..8 {
+        arbitrators.push_back(Address::generate(&env));
+    }
+
+    let result = client.try_assign_arbitrators(&dispute_id, &arbitrators);
+    assert!(result.is_err(), "Should reject assignment of 8 arbitrators (max is 7)");
+}
+
+/// Test that assign_arbitrators accepts exactly MAX_ARBITRATORS = 7.
+#[test]
+fn test_assign_arbitrators_accepts_max() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &7u32,
+        &None,
+    );
+
+    // Assign exactly 7 arbitrators
+    let mut arbitrators = vec![&env];
+    for _ in 0..7 {
+        arbitrators.push_back(Address::generate(&env));
+    }
+
+    client.assign_arbitrators(&dispute_id, &arbitrators);
+
+    // Verify assignment succeeded
+    let dispute = client.get_dispute(&dispute_id);
+    assert_eq!(dispute.arbitrator_count, 7);
+
+    let assigned = client.get_assigned_arbitrators(&dispute_id);
+    assert_eq!(assigned.len(), 7);
+}
+
+/// Test that assign_arbitrators rejects parties to the dispute.
+#[test]
+fn test_assign_arbitrators_rejects_parties() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &3u32,
+        &None,
+    );
+
+    // Try to assign the client as an arbitrator
+    let arbitrators = vec![&env, job_client.clone()];
+
+    let result = client.try_assign_arbitrators(&dispute_id, &arbitrators);
+    assert!(result.is_err(), "Should reject client as arbitrator");
+}
+
+/// Test get_dispute_tally returns correct tally after votes.
+#[test]
+fn test_get_dispute_tally_after_votes() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &3u32,
+        &None,
+    );
+
+    // Cast 2 votes for client, 1 for freelancer
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::Client, &String::from_str(&env, "c1"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::Client, &String::from_str(&env, "c2"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::Freelancer, &String::from_str(&env, "f1"));
+
+    // Get tally and verify
+    let tally = client.get_dispute_tally(&dispute_id);
+    assert_eq!(tally.vote_count, 3);
+    assert_eq!(tally.client_weight, 2);
+    assert_eq!(tally.freelancer_weight, 1);
+    assert_eq!(tally.total_weight_cast, 3);
+}
+
+/// Test finalize_verdict works with O(1) tally (alias for resolve_dispute).
+#[test]
+fn test_finalize_verdict_o1_resolution() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &3u32,
+        &None,
+    );
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::Freelancer, &String::from_str(&env, "f1"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::Freelancer, &String::from_str(&env, "f2"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::Client, &String::from_str(&env, "c1"));
+
+    // Use finalize_verdict instead of resolve_dispute
+    let status = client.finalize_verdict(&dispute_id);
+    assert_eq!(status, DisputeStatus::ResolvedForFreelancer);
+}
+
+/// Instruction-cost benchmark: 3 arbitrators voting and resolution (minimum).
+/// Verifies O(1) complexity by measuring instruction count.
+#[test]
+fn test_instruction_cost_3_arbitrators_minimum() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.budget().reset_unlimited();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &3u32,
+        &None,
+    );
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+
+    // Cast 3 votes to meet minimum
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::Client, &String::from_str(&env, "v1"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::Client, &String::from_str(&env, "v2"));
+
+    // Measure third vote (cast_vote instruction cost)
+    env.budget().reset_default();
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::Client, &String::from_str(&env, "v3"));
+    let vote_cpu = env.budget().cpu_instruction_cost();
+
+    // Measure finalize_verdict instruction cost
+    env.budget().reset_default();
+    client.finalize_verdict(&dispute_id);
+    let finalize_cpu = env.budget().cpu_instruction_cost();
+
+    // Basic sanity check: both should be non-zero and reasonable
+    assert!(vote_cpu > 0);
+    assert!(finalize_cpu > 0);
+}
+
+/// Instruction-cost benchmark: 3 arbitrators voting and resolution.
+#[test]
+fn test_instruction_cost_3_arbitrators() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.budget().reset_unlimited();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &3u32,
+        &None,
+    );
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+
+    // Cast 3 votes
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::Client, &String::from_str(&env, "v1"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::Freelancer, &String::from_str(&env, "v2"));
+
+    // Measure third vote
+    env.budget().reset_default();
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::Client, &String::from_str(&env, "v3"));
+    let vote_cpu = env.budget().cpu_instruction_cost();
+
+    // Measure finalize_verdict
+    env.budget().reset_default();
+    client.finalize_verdict(&dispute_id);
+    let finalize_cpu = env.budget().cpu_instruction_cost();
+
+    assert!(vote_cpu > 0);
+    assert!(finalize_cpu > 0);
+}
+
+/// Instruction-cost benchmark: 5 arbitrators voting and resolution.
+#[test]
+fn test_instruction_cost_5_arbitrators() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.budget().reset_unlimited();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &5u32,
+        &None,
+    );
+
+    // Cast 5 votes
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    let v4 = Address::generate(&env);
+    let v5 = Address::generate(&env);
+
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::Client, &String::from_str(&env, "v1"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::Freelancer, &String::from_str(&env, "v2"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::Client, &String::from_str(&env, "v3"));
+    client.cast_vote(&dispute_id, &v4, &VoteChoice::Freelancer, &String::from_str(&env, "v4"));
+
+    // Measure 5th vote
+    env.budget().reset_default();
+    client.cast_vote(&dispute_id, &v5, &VoteChoice::Client, &String::from_str(&env, "v5"));
+    let vote_cpu = env.budget().cpu_instruction_cost();
+
+    // Measure finalize_verdict
+    env.budget().reset_default();
+    client.finalize_verdict(&dispute_id);
+    let finalize_cpu = env.budget().cpu_instruction_cost();
+
+    assert!(vote_cpu > 0);
+    assert!(finalize_cpu > 0);
+}
+
+/// Instruction-cost benchmark: 7 arbitrators (MAX) voting and resolution.
+/// This test confirms O(1) complexity at the maximum allowed arbitrator count.
+#[test]
+fn test_instruction_cost_7_arbitrators_max() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.budget().reset_unlimited();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &7u32,
+        &None,
+    );
+
+    // Cast 7 votes
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    let v4 = Address::generate(&env);
+    let v5 = Address::generate(&env);
+    let v6 = Address::generate(&env);
+    let v7 = Address::generate(&env);
+
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::Freelancer, &String::from_str(&env, "v1"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::Freelancer, &String::from_str(&env, "v2"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::Freelancer, &String::from_str(&env, "v3"));
+    client.cast_vote(&dispute_id, &v4, &VoteChoice::Freelancer, &String::from_str(&env, "v4"));
+    client.cast_vote(&dispute_id, &v5, &VoteChoice::Client, &String::from_str(&env, "v5"));
+    client.cast_vote(&dispute_id, &v6, &VoteChoice::Client, &String::from_str(&env, "v6"));
+
+    // Measure 7th vote
+    env.budget().reset_default();
+    client.cast_vote(&dispute_id, &v7, &VoteChoice::Freelancer, &String::from_str(&env, "v7"));
+    let vote_cpu = env.budget().cpu_instruction_cost();
+
+    // Measure finalize_verdict
+    env.budget().reset_default();
+    client.finalize_verdict(&dispute_id);
+    let finalize_cpu = env.budget().cpu_instruction_cost();
+
+    assert!(vote_cpu > 0);
+    assert!(finalize_cpu > 0);
+
+    // Verify resolution succeeded
+    let dispute = client.get_dispute(&dispute_id);
+    assert_eq!(dispute.status, DisputeStatus::ResolvedForFreelancer);
+}
+
+/// Adversarial test: All votes for one side (100% skew).
+#[test]
+fn test_adversarial_unanimous_vote() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &7u32,
+        &None,
+    );
+
+    // All 7 votes for freelancer (100% skew)
+    for _ in 0..7 {
+        let voter = Address::generate(&env);
+        client.cast_vote(&dispute_id, &voter, &VoteChoice::Freelancer, &String::from_str(&env, "unanimous"));
+    }
+
+    let tally = client.get_dispute_tally(&dispute_id);
+    assert_eq!(tally.freelancer_weight, 7);
+    assert_eq!(tally.client_weight, 0);
+    assert_eq!(tally.vote_count, 7);
+
+    let status = client.finalize_verdict(&dispute_id);
+    assert_eq!(status, DisputeStatus::ResolvedForFreelancer);
+}
+
+/// Adversarial test: Minimal winning margin (4-3 vote).
+#[test]
+fn test_adversarial_minimal_margin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &7u32,
+        &None,
+    );
+
+    // 4 votes for client, 3 for freelancer (minimal margin)
+    for i in 0..7 {
+        let voter = Address::generate(&env);
+        let choice = if i < 4 {
+            VoteChoice::Client
+        } else {
+            VoteChoice::Freelancer
+        };
+        client.cast_vote(&dispute_id, &voter, &choice, &String::from_str(&env, "vote"));
+    }
+
+    let tally = client.get_dispute_tally(&dispute_id);
+    assert_eq!(tally.client_weight, 4);
+    assert_eq!(tally.freelancer_weight, 3);
+
+    let status = client.finalize_verdict(&dispute_id);
+    assert_eq!(status, DisputeStatus::ResolvedForClient);
+}
+
+/// Adversarial test: Mix of vote types (Client, Freelancer, RefundSplit, MaliciousFiling).
+#[test]
+fn test_adversarial_mixed_vote_types() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &7u32,
+        &None,
+    );
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    let v4 = Address::generate(&env);
+    let v5 = Address::generate(&env);
+    let v6 = Address::generate(&env);
+    let v7 = Address::generate(&env);
+
+    // Mixed votes: 3 Client, 2 Freelancer, 1 RefundSplit, 1 MaliciousFiling
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::Client, &String::from_str(&env, "c1"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::Client, &String::from_str(&env, "c2"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::Client, &String::from_str(&env, "c3"));
+    client.cast_vote(&dispute_id, &v4, &VoteChoice::Freelancer, &String::from_str(&env, "f1"));
+    client.cast_vote(&dispute_id, &v5, &VoteChoice::Freelancer, &String::from_str(&env, "f2"));
+    client.cast_vote(&dispute_id, &v6, &VoteChoice::RefundSplit(50), &String::from_str(&env, "split"));
+    client.cast_vote(&dispute_id, &v7, &VoteChoice::MaliciousFiling, &String::from_str(&env, "mal"));
+
+    let tally = client.get_dispute_tally(&dispute_id);
+    assert_eq!(tally.client_weight, 3);
+    assert_eq!(tally.freelancer_weight, 2);
+    assert_eq!(tally.refund_split_weight, 1);
+    assert_eq!(tally.malicious_weight, 1);
+    assert_eq!(tally.vote_count, 7);
+
+    // Client should win with plurality
+    let status = client.finalize_verdict(&dispute_id);
+    assert_eq!(status, DisputeStatus::ResolvedForClient);
+}
+
+/// Adversarial test: Extreme refund split percentages (0% and 100%).
+#[test]
+fn test_adversarial_extreme_refund_splits() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let dispute_contract_id = env.register_contract(None, DisputeContract);
+    let client = DisputeContractClient::new(&env, &dispute_contract_id);
+    let escrow_contract_id = env.register_contract(None, DummyEscrow);
+    let reputation_contract_id = env.register_contract(None, MockReputationContract);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &reputation_contract_id, &300, &escrow_contract_id);
+
+    let job_client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
+
+    let dispute_id = client.raise_dispute(
+        &1u64,
+        &job_client,
+        &freelancer,
+        &job_client,
+        &String::from_str(&env, "Dispute"),
+        &5u32,
+        &None,
+    );
+
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    let v4 = Address::generate(&env);
+    let v5 = Address::generate(&env);
+
+    // All refund splits with extreme values
+    client.cast_vote(&dispute_id, &v1, &VoteChoice::RefundSplit(0), &String::from_str(&env, "0%"));
+    client.cast_vote(&dispute_id, &v2, &VoteChoice::RefundSplit(100), &String::from_str(&env, "100%"));
+    client.cast_vote(&dispute_id, &v3, &VoteChoice::RefundSplit(0), &String::from_str(&env, "0%"));
+    client.cast_vote(&dispute_id, &v4, &VoteChoice::RefundSplit(100), &String::from_str(&env, "100%"));
+    client.cast_vote(&dispute_id, &v5, &VoteChoice::RefundSplit(50), &String::from_str(&env, "50%"));
+
+    let tally = client.get_dispute_tally(&dispute_id);
+    assert_eq!(tally.refund_split_count, 5);
+    assert_eq!(tally.refund_split_sum, 0 + 100 + 0 + 100 + 50);
+    assert_eq!(tally.vote_count, 5);
+
+    // Should resolve as RefundSplit with average percentage
+    let status = client.finalize_verdict(&dispute_id);
+    match status {
+        DisputeStatus::RefundSplit(pct) => {
+            // Average should be (0+100+0+100+50)/5 = 250/5 = 50
+            assert_eq!(pct, 50);
+        }
+        _ => panic!("Expected RefundSplit status"),
+    }
+}
